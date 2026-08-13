@@ -5,6 +5,7 @@ langchain-community
 langchain-text-splitters
 langchain-chroma
 langchain-huggingface
+langchain_openai
 sentence-transformers
 pymupdf
 pypdf

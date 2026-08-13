@@ -5,8 +5,12 @@ from openai import OpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_openai import OpenAIEmbeddings
 from typing import Dict, Any, List, Optional, Literal
 from pydantic import BaseModel, Field
 import re
@@ -27,6 +31,15 @@ def client (APIkey):
         error = True
         status_text = f"Failed to initialize OpenAI client: {e}"
         return client, error, status_text
+
+# 2) Loading Ranking Model
+reranker_model = HuggingFaceCrossEncoder(
+    model_name="BAAI/bge-reranker-base")
+
+# 3) Loading Embeddings Model
+embeddings = OpenAIEmbeddings(
+    model="text-embedding-3-small"
+)
 
 ########## Retriever ###########
 # 1) Documents Loader
@@ -143,6 +156,48 @@ def load_documents(uploaded_files):
           )
   return documents
 
+# e) Documents Splitter
+def split_documents(documents):
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1200,
+        chunk_overlap=150)
+    return text_splitter.split_documents(documents)
 
+# f) Vector Store Database
+def create_db(chunks, embeddings, db_path):
+    vector_store = Chroma.from_documents(
+        documents=chunks,
+        embedding=embeddings,
+        persist_directory=db_path)
+    return vector_store
 
+def load_db(embeddings, db_path):
+    vector_store = Chroma(
+        persist_directory=db_path,
+        embedding_function=embeddings)
+    return vector_store
+
+def update_db(vector_store, new_chunks):
+    vector_store.add_documents(documents=new_chunks)
+    return vector_store
+
+# g) Creating the Retriver
+def creat_retriever (vector_store, base_retrieved, top_retrived):
+  base_retriever = vector_store.as_retriever(search_kwargs={"k": base_retrieved})
+  compressor = CrossEncoderReranker(model=reranker_model, top_n = top_retrived)
+  retriever = ContextualCompressionRetriever(base_retriever=base_retriever, base_compressor=compressor)
+  return retriever
+
+# h) Formating the context
+def format_context(documents):
+    context = ""
+    for doc in documents:
+        context += f"""
+        DOCUMENT ID: {doc.metadata["document_id"]}
+        DOCUMENT NAME: {doc.metadata["document_name"]}
+        PAGE: {doc.metadata["page"]}
+        {doc.page_content}
+        ---
+        """
+    return context
 
