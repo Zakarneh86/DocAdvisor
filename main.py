@@ -1,9 +1,5 @@
-import os
-import tempfile
 import pymupdf
 from openai import OpenAI
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
@@ -13,10 +9,7 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from typing import Dict, Any, List, Optional, Literal
 from pydantic import BaseModel, Field
-import re
-import warnings
 import base64
-import json
 
 ########## Initilizing Enviorment Variables, Clients...Etc)
 # 1) OpenAI Client
@@ -32,18 +25,29 @@ def client (APIkey):
         status_text = f"Failed to initialize OpenAI client: {e}"
         return client, error, status_text
 
+## System Prompt
+System_prompt = '''You are an assistant specialized in answering questions from standards documents.
+
+Use only the provided context.
+
+Rules:
+- Do not use outside knowledge.
+- Do not invent requirements.
+- If the context is insufficient, state that clearly.
+- Preserve technical values, units, clause references, and conditions accurately.
+- Base every answer on the retrieved standards context.'''
+
 # 2) Loading Ranking Model
-reranker_model = HuggingFaceCrossEncoder(
-    model_name="BAAI/bge-reranker-base")
-
+def load_ranker():
+    reranker_model = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-base")
+    return reranker_model
 # 3) Loading Embeddings Model
-embeddings = OpenAIEmbeddings(
-    model="text-embedding-3-small"
-)
-
+def load_embeddings():
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    return embeddings
 ########## Retriever ###########
 # 1) Documents Loader
-# a) Text Extraction Helping Class to Set the Model Response Schema
+## a) Text Extraction Helping Class to Set the Model Response Schema
 class ExtractedPage(BaseModel):
     text: str = Field(description="All text extracted from that page")
 
@@ -58,7 +62,7 @@ class ExtractedDocument(BaseModel):
         description="The pages extracted from the document"
     )
 
-# b) Text Extraction Function to Interact with the Model
+## b) Text Extraction Function to Interact with the Model
 def extract_text(pages, client):
     content = [
         {
@@ -101,7 +105,7 @@ Requirements:
     )
     return response.choices[0].message.parsed
 
-# c) Full Document Text Extraction 3 pages a time
+## c) Full Document Text Extraction 3 pages a time
 def extract_document_text(pdf, client):
   full_doc = {"document_id": None,
               "document_name": None,
@@ -129,7 +133,7 @@ def extract_document_text(pdf, client):
         full_doc["pages"][page_number] = page.text
   return full_doc
 
-# d) Document Loader Function to Process Streamlit Uploaded Files and Return LangChain Documents
+## d) Document Loader Function to Process Streamlit Uploaded Files and Return LangChain Documents
 def load_documents(uploaded_files):
   documents = []
   for uploaded_file in uploaded_files:
@@ -156,14 +160,14 @@ def load_documents(uploaded_files):
           )
   return documents
 
-# e) Documents Splitter
+# 2) Documents Splitter
 def split_documents(documents):
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1200,
         chunk_overlap=150)
     return text_splitter.split_documents(documents)
 
-# f) Vector Store Database
+# 3) Vector Store Database
 def create_db(chunks, embeddings, db_path):
     vector_store = Chroma.from_documents(
         documents=chunks,
@@ -181,14 +185,14 @@ def update_db(vector_store, new_chunks):
     vector_store.add_documents(documents=new_chunks)
     return vector_store
 
-# g) Creating the Retriver
-def creat_retriever (vector_store, base_retrieved, top_retrived):
+# 4) Creating the Retriver
+def creat_retriever (vector_store, base_retrieved, top_retrived, ranker_model):
   base_retriever = vector_store.as_retriever(search_kwargs={"k": base_retrieved})
-  compressor = CrossEncoderReranker(model=reranker_model, top_n = top_retrived)
+  compressor = CrossEncoderReranker(model=ranker_model, top_n = top_retrived)
   retriever = ContextualCompressionRetriever(base_retriever=base_retriever, base_compressor=compressor)
   return retriever
 
-# h) Formating the context
+# 5) Formating the context
 def format_context(documents):
     context = ""
     for doc in documents:
@@ -201,3 +205,38 @@ def format_context(documents):
         """
     return context
 
+########## Model Interface ###########
+# 1) Formating Model Answer
+class StandardReference(BaseModel):
+    document: str
+    clause: Optional[str] = None
+    page: Optional[int] = None
+    evidence: str
+
+class StandardsAnswer(BaseModel):
+    answer: str
+    status: Literal[
+        "supported",
+        "partially_supported",
+        "insufficient_information"
+    ]
+    references: List[StandardReference]
+    notes: Optional[str] = None
+# 2) Calling the Model
+def answer_question (client, system_prompt, question, context):
+    response = client.chat.completions.parse(
+    model="gpt-4o",
+    messages=[
+        {
+            "role": "system",
+            "content": {system_prompt}},
+
+            {
+                "role": "user",
+                "content": f'''
+                            Question: {question}
+
+                            context: {context}'''
+            }],
+        response_format = StandardsAnswer)
+    return response.choices[0].message.parsed
