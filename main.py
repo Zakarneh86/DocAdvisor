@@ -42,8 +42,8 @@ def load_ranker():
     reranker_model = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-base")
     return reranker_model
 # 3) Loading Embeddings Model
-def load_embeddings():
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+def load_embeddings(api_key):
+    embeddings = OpenAIEmbeddings(api_key=api_key, model="text-embedding-3-small")
     return embeddings
 ########## Retriever ###########
 # 1) Documents Loader
@@ -134,7 +134,7 @@ def extract_document_text(pdf, client):
   return full_doc
 
 ## d) Document Loader Function to Process Streamlit Uploaded Files and Return LangChain Documents
-def load_documents(uploaded_files):
+def load_documents(uploaded_files, client):
   documents = []
   for uploaded_file in uploaded_files:
       # Streamlit UploadedFile -> bytes
@@ -143,7 +143,7 @@ def load_documents(uploaded_files):
       pdf = pymupdf.open(
           stream=pdf_bytes,
           filetype="pdf")
-      full_doc = extract_document_text(pdf)
+      full_doc = extract_document_text(pdf, client)
       pdf.close()
       # Convert extracted pages into LangChain Documents
       for page_number, text in full_doc["pages"].items():
