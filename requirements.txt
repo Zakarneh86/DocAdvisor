@@ -9,3 +9,4 @@ langchain_openai
 sentence-transformers
 pymupdf
 pypdf
+streamlit

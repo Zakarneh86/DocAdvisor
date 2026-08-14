@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 import streamlit as st
+import toml
 
 import main
 
@@ -13,6 +14,18 @@ import main
 APP_ROOT = Path(__file__).resolve().parent
 VECTOR_ROOT = APP_ROOT / "vector_store"
 INVALID_STORE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+@st.cache_data(show_spinner=False)
+def load_api_key() -> str:
+    secrets_path = APP_ROOT / "secrets.toml"
+    if not secrets_path.is_file():
+        raise FileNotFoundError(f"Secrets file not found: {secrets_path}")
+    config = toml.load(secrets_path)
+    api_key = str(config.get("API_Keys", {}).get("openAI", "")).strip()
+    if not api_key:
+        raise ValueError("Missing API_Keys.openAI in secrets.toml.")
+    return api_key
 
 
 def list_stores() -> list[str]:
@@ -103,12 +116,18 @@ st.set_page_config(page_title="Document Advisor", page_icon="📚")
 st.title("Document Advisor")
 st.caption("Upload standards documents, then ask questions about their content.")
 
+try:
+    api_key = load_api_key()
+except Exception as exc:
+    st.error(f"OpenAI configuration error: {exc}")
+    st.stop()
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 with st.sidebar:
     st.header("Document store")
-    api_key = st.text_input("OpenAI API key", type="password")
+    st.caption("OpenAI API key loaded from secrets.toml.")
 
     stores = list_stores()
     selection = st.selectbox(
@@ -138,8 +157,6 @@ with st.sidebar:
         disabled=not uploads,
     ):
         try:
-            if not api_key:
-                raise ValueError("Enter your OpenAI API key first.")
             name = validate_store_name(store_name_input)
             path = store_path(name)
             openai_client, embeddings = openai_resources(api_key)
@@ -175,8 +192,6 @@ with st.sidebar:
         disabled=selection == "Create a new store",
     ):
         try:
-            if not api_key:
-                raise ValueError("Enter your OpenAI API key first.")
             name = validate_store_name(selection)
             _, embeddings = openai_resources(api_key)
             st.session_state.vector_store = main.load_db(
@@ -212,8 +227,6 @@ if question:
 
     with st.chat_message("assistant"):
         try:
-            if not api_key:
-                raise ValueError("Enter your OpenAI API key in the sidebar.")
             openai_client, _ = openai_resources(api_key)
             with st.spinner("Searching documents and preparing an answer…"):
                 retriever = main.creat_retriever(
