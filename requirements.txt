@@ -10,3 +10,4 @@ sentence-transformers
 pymupdf
 pypdf
 streamlit
+toml
