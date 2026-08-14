@@ -18,13 +18,25 @@ INVALID_STORE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 @st.cache_data(show_spinner=False)
 def load_api_key() -> str:
+    # Streamlit Community Cloud and standard .streamlit/secrets.toml setup.
+    try:
+        api_key = str(st.secrets.get("API_Keys", {}).get("openAI", "")).strip()
+    except Exception:
+        api_key = ""
+    if api_key:
+        return api_key
+
+    # Local compatibility with the repository-root secrets.toml file.
     secrets_path = APP_ROOT / "secrets.toml"
     if not secrets_path.is_file():
-        raise FileNotFoundError(f"Secrets file not found: {secrets_path}")
+        raise FileNotFoundError(
+            "Configure API_Keys.openAI in Streamlit secrets or create "
+            f"{secrets_path}."
+        )
     config = toml.load(secrets_path)
     api_key = str(config.get("API_Keys", {}).get("openAI", "")).strip()
     if not api_key:
-        raise ValueError("Missing API_Keys.openAI in secrets.toml.")
+        raise ValueError("Missing API_Keys.openAI in Streamlit secrets.")
     return api_key
 
 
@@ -127,7 +139,7 @@ if "messages" not in st.session_state:
 
 with st.sidebar:
     st.header("Document store")
-    st.caption("OpenAI API key loaded from secrets.toml.")
+    st.caption("OpenAI API key loaded securely from Streamlit secrets.")
 
     stores = list_stores()
     selection = st.selectbox(
