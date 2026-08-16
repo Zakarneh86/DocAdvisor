@@ -113,8 +113,6 @@ def show_answer(answer) -> None:
         with st.expander("References", expanded=True):
             for reference in answer.references:
                 details = []
-                if reference.clause:
-                    details.append(f"Clause {reference.clause}")
                 if reference.page is not None:
                     details.append(f"page {reference.page}")
                 location = f" — {', '.join(details)}" if details else ""
