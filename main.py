@@ -208,10 +208,17 @@ def format_context(documents):
 ########## Model Interface ###########
 # 1) Formating Model Answer
 class StandardReference(BaseModel):
-    document: str
-    clause: Optional[str] = None
-    page: Optional[int] = None
-    evidence: str
+    document: str = Field(
+        description="Document ID or document name"
+    )
+
+    page: int = Field(
+        description="PDF page number containing the supporting information"
+    )
+
+    evidence: str = Field(
+        description="Supporting text from the retrieved context"
+    )
 
 class StandardsAnswer(BaseModel):
     answer: str
