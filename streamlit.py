@@ -154,7 +154,7 @@ with st.sidebar:
     if action == "Create new library":
         library_name = st.text_input(
             "Document-library name",
-            placeholder="Saudi Electric Company Standard",
+            placeholder="E.g. Employment Contract",
         )
     else:
         library_name = st.selectbox(
