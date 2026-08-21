@@ -52,9 +52,9 @@ def list_stores() -> list[str]:
 def validate_store_name(value: str) -> str:
     name = " ".join(value.split())
     if not name:
-        raise ValueError("Enter a vector-store name.")
+        raise ValueError("Enter a document-library name.")
     if len(name) > 100:
-        raise ValueError("The vector-store name must be 100 characters or fewer.")
+        raise ValueError("The document-library name must be 100 characters or fewer.")
     if name in {".", ".."} or INVALID_STORE_CHARS.search(name):
         raise ValueError('The name cannot contain < > : " / \\ | ? * or control characters.')
     if name.endswith((".", " ")):
@@ -66,7 +66,7 @@ def store_path(name: str) -> Path:
     root = VECTOR_ROOT.resolve()
     path = (root / validate_store_name(name)).resolve()
     if path.parent != root:
-        raise ValueError("Invalid vector-store path.")
+        raise ValueError("Invalid document-library path.")
     return path
 
 
@@ -136,88 +136,120 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 with st.sidebar:
-    st.header("Document store")
+    st.header("Document library")
     st.caption("OpenAI API key loaded securely from Streamlit secrets.")
 
     stores = list_stores()
-    selection = st.selectbox(
-        "Existing vector stores",
-        ["Create a new store", *stores],
+    actions = ["Create new library"]
+    if stores:
+        actions.extend(["Update existing library", "Load existing library"])
+    action = st.radio(
+        "Library action",
+        actions,
         on_change=clear_active_store,
     )
-    if selection == "Create a new store":
-        store_name_input = st.text_input(
-            "Vector-store name",
+    if not stores:
+        st.caption("No existing document libraries were found.")
+
+    if action == "Create new library":
+        library_name = st.text_input(
+            "Document-library name",
             placeholder="Saudi Electric Company Standard",
         )
     else:
-        store_name_input = selection
-        st.caption("Uploaded documents will update this store.")
+        library_name = st.selectbox(
+            "Document library",
+            stores,
+            on_change=clear_active_store,
+        )
 
-    uploads = st.file_uploader(
-        "Upload PDF documents",
-        type="pdf",
-        accept_multiple_files=True,
-    )
+    if action in {"Create new library", "Update existing library"}:
+        uploads = st.file_uploader(
+            "Upload PDF documents",
+            type="pdf",
+            accept_multiple_files=True,
+            key=f"uploads_{action}",
+        )
+        button_label = (
+            "Create library"
+            if action == "Create new library"
+            else "Update library"
+        )
 
-    if st.button(
-        "Process documents",
+        if st.button(
+            button_label,
+            type="primary",
+            use_container_width=True,
+            disabled=not uploads,
+        ):
+            try:
+                name = validate_store_name(library_name)
+                path = store_path(name)
+                if action == "Create new library" and path.exists():
+                    raise ValueError(
+                        "A document library with this name already exists. "
+                        "Choose Update existing library instead."
+                    )
+                if action == "Update existing library" and not path.is_dir():
+                    raise FileNotFoundError(
+                        f"The document library '{name}' no longer exists."
+                    )
+
+                openai_client, embeddings = openai_resources(api_key)
+                with st.status("Processing documents…", expanded=True) as status:
+                    st.write("Extracting text from uploaded PDFs…")
+                    documents = main.load_documents(uploads, openai_client)
+                    if not documents:
+                        raise RuntimeError("No document text was extracted.")
+
+                    st.write("Splitting pages into searchable chunks…")
+                    chunks = main.split_documents(documents)
+                    if action == "Update existing library":
+                        st.write(f"Updating {name}…")
+                        vector_store = main.load_db(embeddings, str(path))
+                        vector_store = main.update_db(vector_store, chunks)
+                    else:
+                        st.write(f"Creating {name}…")
+                        VECTOR_ROOT.mkdir(parents=True, exist_ok=True)
+                        vector_store = main.create_db(chunks, embeddings, str(path))
+
+                    st.session_state.vector_store = vector_store
+                    st.session_state.active_store = name
+                    st.session_state.messages = []
+                    status.update(label="Documents are ready", state="complete")
+
+                verb = "Added" if action == "Update existing library" else "Saved"
+                st.success(f"{verb} {len(chunks)} chunks in {name}.")
+            except Exception as exc:
+                st.error(f"Could not process the documents: {exc}")
+
+    elif st.button(
+        "Load library",
         type="primary",
         use_container_width=True,
-        disabled=not uploads,
     ):
         try:
-            name = validate_store_name(store_name_input)
-            path = store_path(name)
-            openai_client, embeddings = openai_resources(api_key)
-
-            with st.status("Processing documents…", expanded=True) as status:
-                st.write("Extracting text from uploaded PDFs…")
-                documents = main.load_documents(uploads, openai_client)
-                if not documents:
-                    raise RuntimeError("No document text was extracted.")
-
-                st.write("Splitting pages into searchable chunks…")
-                chunks = main.split_documents(documents)
-                if path.is_dir():
-                    st.write(f"Updating {name}…")
-                    vector_store = main.load_db(embeddings, str(path))
-                    vector_store = main.update_db(vector_store, chunks)
-                else:
-                    st.write(f"Creating {name}…")
-                    VECTOR_ROOT.mkdir(parents=True, exist_ok=True)
-                    vector_store = main.create_db(chunks, embeddings, str(path))
-
-                st.session_state.vector_store = vector_store
-                st.session_state.active_store = name
-                st.session_state.messages = []
-                status.update(label="Documents are ready", state="complete")
-            st.success(f"Saved {len(chunks)} chunks in vector_store/{name}.")
-        except Exception as exc:
-            st.error(f"Could not process the documents: {exc}")
-
-    if st.button(
-        "Load selected store",
-        use_container_width=True,
-        disabled=selection == "Create a new store",
-    ):
-        try:
-            name = validate_store_name(selection)
+            name = validate_store_name(library_name)
             _, embeddings = openai_resources(api_key)
+            path = store_path(name)
+            if not path.is_dir():
+                raise FileNotFoundError(
+                    f"The document library '{name}' no longer exists."
+                )
             st.session_state.vector_store = main.load_db(
-                embeddings, str(store_path(name))
+                embeddings, str(path)
             )
             st.session_state.active_store = name
             st.session_state.messages = []
             st.success(f"Loaded {name}.")
         except Exception as exc:
-            st.error(f"Could not load the vector store: {exc}")
+            st.error(f"Could not load the document library: {exc}")
 
 active_store = st.session_state.get("active_store")
 if active_store:
-    st.caption(f"Active vector store: **{active_store}**")
+    st.caption(f"Active document library: **{active_store}**")
 else:
-    st.info("Load an existing vector store or upload PDFs to create one.")
+    st.info("Load an existing document library or upload PDFs to create one.")
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
