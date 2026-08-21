@@ -10,6 +10,7 @@ from langchain_openai import OpenAIEmbeddings
 from typing import Dict, Any, List, Optional, Literal
 from pydantic import BaseModel, Field
 import base64
+from uuid import uuid4
 
 ########## Initilizing Enviorment Variables, Clients...Etc)
 # 1) OpenAI Client
@@ -174,6 +175,13 @@ def create_db(chunks, embeddings, db_path):
         embedding=embeddings,
         persist_directory=db_path)
     return vector_store
+
+def create_temporary_db(chunks, embeddings):
+    return Chroma.from_documents(
+        documents=chunks,
+        embedding=embeddings,
+        collection_name=f"temporary_{uuid4().hex}",
+    )
 
 def load_db(embeddings, db_path):
     vector_store = Chroma(

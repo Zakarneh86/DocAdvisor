@@ -14,6 +14,7 @@ import main
 APP_ROOT = Path(__file__).resolve().parent
 VECTOR_ROOT = APP_ROOT / "vector_store"
 INVALID_STORE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+TEMPORARY_LIBRARY = "Temporary session"
 
 
 @st.cache_data(show_spinner=False)
@@ -101,8 +102,15 @@ def get_answer(openai_client, question: str, context: str):
 
 
 def clear_active_store() -> None:
+    vector_store = st.session_state.get("vector_store")
+    if st.session_state.get("active_is_temporary") and vector_store is not None:
+        try:
+            vector_store.delete_collection()
+        except Exception:
+            pass
     st.session_state.pop("vector_store", None)
     st.session_state.pop("active_store", None)
+    st.session_state.pop("active_is_temporary", None)
     st.session_state.messages = []
 
 
@@ -140,7 +148,7 @@ with st.sidebar:
     st.caption("OpenAI API key loaded securely from Streamlit secrets.")
 
     stores = list_stores()
-    actions = ["Create new library"]
+    actions = ["Create new library", "Temporary document session"]
     if stores:
         actions.extend(["Update existing library", "Load existing library"])
     action = st.radio(
@@ -151,7 +159,13 @@ with st.sidebar:
     if not stores:
         st.caption("No existing document libraries were found.")
 
-    if action == "Create new library":
+    if action == "Temporary document session":
+        library_name = TEMPORARY_LIBRARY
+        st.info(
+            "Documents in this mode are kept in memory only and are not "
+            "saved in the vector_store directory."
+        )
+    elif action == "Create new library":
         library_name = st.text_input(
             "Document-library name",
             placeholder="E.g. Employment Contract",
@@ -163,18 +177,22 @@ with st.sidebar:
             on_change=clear_active_store,
         )
 
-    if action in {"Create new library", "Update existing library"}:
+    if action in {
+        "Create new library",
+        "Update existing library",
+        "Temporary document session",
+    }:
         uploads = st.file_uploader(
             "Upload PDF documents",
             type="pdf",
             accept_multiple_files=True,
             key=f"uploads_{action}",
         )
-        button_label = (
-            "Create library"
-            if action == "Create new library"
-            else "Update library"
-        )
+        button_label = {
+            "Create new library": "Create library",
+            "Update existing library": "Update library",
+            "Temporary document session": "Process temporary documents",
+        }[action]
 
         if st.button(
             button_label,
@@ -183,8 +201,11 @@ with st.sidebar:
             disabled=not uploads,
         ):
             try:
-                name = validate_store_name(library_name)
-                path = store_path(name)
+                name = library_name
+                path = None
+                if action != "Temporary document session":
+                    name = validate_store_name(library_name)
+                    path = store_path(name)
                 if action == "Create new library" and path.exists():
                     raise ValueError(
                         "A document library with this name already exists. "
@@ -204,7 +225,10 @@ with st.sidebar:
 
                     st.write("Splitting pages into searchable chunks…")
                     chunks = main.split_documents(documents)
-                    if action == "Update existing library":
+                    if action == "Temporary document session":
+                        st.write("Creating temporary in-memory library…")
+                        vector_store = main.create_temporary_db(chunks, embeddings)
+                    elif action == "Update existing library":
                         st.write(f"Updating {name}…")
                         vector_store = main.load_db(embeddings, str(path))
                         vector_store = main.update_db(vector_store, chunks)
@@ -215,11 +239,19 @@ with st.sidebar:
 
                     st.session_state.vector_store = vector_store
                     st.session_state.active_store = name
+                    st.session_state.active_is_temporary = (
+                        action == "Temporary document session"
+                    )
                     st.session_state.messages = []
                     status.update(label="Documents are ready", state="complete")
 
-                verb = "Added" if action == "Update existing library" else "Saved"
-                st.success(f"{verb} {len(chunks)} chunks in {name}.")
+                if action == "Temporary document session":
+                    st.success(
+                        f"Prepared {len(chunks)} temporary chunks for this session."
+                    )
+                else:
+                    verb = "Added" if action == "Update existing library" else "Saved"
+                    st.success(f"{verb} {len(chunks)} chunks in {name}.")
             except Exception as exc:
                 st.error(f"Could not process the documents: {exc}")
 
@@ -240,6 +272,7 @@ with st.sidebar:
                 embeddings, str(path)
             )
             st.session_state.active_store = name
+            st.session_state.active_is_temporary = False
             st.session_state.messages = []
             st.success(f"Loaded {name}.")
         except Exception as exc:
@@ -248,6 +281,13 @@ with st.sidebar:
 active_store = st.session_state.get("active_store")
 if active_store:
     st.caption(f"Active document library: **{active_store}**")
+    if st.session_state.get("active_is_temporary"):
+        if st.sidebar.button(
+            "Clear temporary documents",
+            use_container_width=True,
+        ):
+            clear_active_store()
+            st.rerun()
 else:
     st.info("Load an existing document library or upload PDFs to create one.")
 
