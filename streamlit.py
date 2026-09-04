@@ -218,8 +218,32 @@ with st.sidebar:
 
                 openai_client, embeddings = openai_resources(api_key)
                 with st.status("Processing documents…", expanded=True) as status:
-                    st.write("Extracting text from uploaded PDFs…")
-                    documents = main.load_documents(uploads, openai_client)
+                    documents = []
+                    for uploaded_file in uploads:
+                        st.write(uploaded_file.name)
+                        extraction_status = st.empty()
+                        with main.pymupdf.open(
+                            stream=uploaded_file.getvalue(), filetype="pdf"
+                        ) as pdf:
+                            page_count = len(pdf)
+                            for page_index in range(page_count):
+                                extraction_status.write(
+                                    f"Extracting page {page_index + 1} out of {page_count}"
+                                )
+                                result = main.extract_text([pdf[page_index]], openai_client)
+                                if page_index == 0:
+                                    document_id = result.document_id
+                                    document_name = result.document_name
+                                documents.append(main.Document(
+                                    page_content=result.pages[0].text,
+                                    metadata={
+                                        "source": uploaded_file.name,
+                                        "document_id": document_id,
+                                        "document_name": document_name,
+                                        "page": page_index + 1,
+                                    },
+                                ))
+                        extraction_status.write(f"Extracted {page_count} out of {page_count} pages")
                     if not documents:
                         raise RuntimeError("No document text was extracted.")
 
