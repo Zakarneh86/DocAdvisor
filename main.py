@@ -111,27 +111,16 @@ def extract_document_text(pdf, client):
   full_doc = {"document_id": None,
               "document_name": None,
               "pages": {}}
-  for i in range(0, len(pdf), 3):
-    pages = [pdf[x] for x in range(i, min(i + 3, len(pdf)))]
-    while True:
-        print(f"Extracting pages {i + 1}-{i + len(pages)}")
-        result = extract_text(pages, client)
-        if len(result.pages) == len(pages):
-            break
-        print(
-              f"Extraction failed for pages "
-              f"{i + 1}-{i + len(pages)}. "
-              f"Expected {len(pages)} pages, "
-              f"received {len(result.pages)}. Retrying..."
-          )
+  for i in range(len(pdf)):
+    pages = [pdf[i]]
+    print(f"Extracting pages {i + 1}-{i + len(pages)}")
+    result = extract_text(pages, client)
+       
     if i == 0:
         full_doc["document_id"] = result.document_id
         full_doc["document_name"] = result.document_name
 
-    for x, page in enumerate(result.pages):
-        page_number = i + x + 1
-
-        full_doc["pages"][page_number] = page.text
+    full_doc["pages"][i+1] = result.pages[0].text
   return full_doc
 
 ## d) Document Loader Function to Process Streamlit Uploaded Files and Return LangChain Documents
