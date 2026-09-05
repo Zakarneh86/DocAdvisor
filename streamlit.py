@@ -84,23 +84,6 @@ def ranker():
     return main.load_ranker()
 
 
-def get_answer(openai_client, question: str, context: str):
-    """Use main's prompt/schema while keeping main.py unchanged."""
-    response = openai_client.chat.completions.parse(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": main.chat_system_prompt},
-            {
-                "role": "user",
-                "content": f"Question: {question}\n\nContext:\n{context}",
-            },
-        ],
-        temperature=0,
-        response_format=main.StandardsAnswer,
-    )
-    return response.choices[0].message.parsed
-
-
 def clear_active_store() -> None:
     vector_store = st.session_state.get("vector_store")
     if st.session_state.get("active_is_temporary") and vector_store is not None:
@@ -343,7 +326,12 @@ if question:
                 )
                 documents = retriever.invoke(question)
                 context = main.format_context(documents)
-                answer = get_answer(openai_client, question, context)
+                answer = main.answer_question(
+                    openai_client,
+                    main.chat_system_prompt,
+                    question,
+                    context,
+                )
             show_answer(answer)
             st.session_state.messages.append(
                 {"role": "assistant", "answer": answer}
