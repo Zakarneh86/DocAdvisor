@@ -274,5 +274,6 @@ def answer_question (client, system_prompt, question, context):
 
                         context: {context}'''
         }],
+        temperature=0,
         response_format = StandardsAnswer)
     return response.choices[0].message.parsed
