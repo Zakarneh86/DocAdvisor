@@ -89,7 +89,7 @@ def get_answer(openai_client, question: str, context: str):
     response = openai_client.chat.completions.parse(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": main.System_prompt},
+            {"role": "system", "content": main.chat_system_prompt},
             {
                 "role": "user",
                 "content": f"Question: {question}\n\nContext:\n{context}",
@@ -230,7 +230,7 @@ with st.sidebar:
                                 extraction_status.write(
                                     f"Extracting page {page_index + 1} out of {page_count}"
                                 )
-                                result = main.extract_text([pdf[page_index]], openai_client)
+                                result = main.extract_text([pdf[page_index]], openai_client, main.extract_system_prompt)
                                 if page_index == 0:
                                     document_id = result.document_id
                                     document_name = result.document_name

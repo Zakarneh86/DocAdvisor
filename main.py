@@ -26,8 +26,8 @@ def client (APIkey):
         status_text = f"Failed to initialize OpenAI client: {e}"
         return client, error, status_text
 
-## System Prompt
-System_prompt = '''You are an assistant specialized in answering questions from standards documents.
+## Prompt
+chat_system_prompt = '''You are an assistant specialized in answering questions from standards documents.
 
 Use only the provided context.
 
@@ -38,6 +38,48 @@ Rules:
 - Preserve technical values, units, clause references, and conditions accurately.
 - Base every answer on the retrieved standards context.'''
 
+extract_system_prompt = '''You are extracting one page from a technical document for use in a Retrieval-Augmented Generation (RAG) system.
+
+Your goal is NOT to reproduce every visible word mechanically.
+Your goal is to create a compact but information-rich textual representation of the page that preserves the information needed to answer future technical questions.
+
+Follow these rules:
+
+1. If the page mainly contains normal text:
+   - Extract the complete meaningful text.
+   - Preserve headings, section numbers, clause numbers, requirements, values, units, notes, warnings, and references.
+   - Preserve tables in a readable text form.
+   - Do not summarize technical requirements unless necessary to reduce excessive repetition.
+
+2. If the page mainly contains a diagram, schematic, drawing, flowchart, or other visual:
+   - Do NOT transcribe every repeated label, symbol, or device tag.
+   - Extract the figure title or caption.
+   - Identify the major equipment, panels, systems, buses, sources, loads, and other important components.
+   - Preserve important ratings, voltages, settings, equipment states, and annotations.
+   - Describe the functional relationships, connections, power flow, signal flow, redundancy, transfer logic, and topology shown by the visual.
+   - Include repeated device labels only when their repetition is important to understanding the arrangement.
+   - Do not attempt to recreate the drawing symbol-by-symbol.
+
+3. If the page contains both text and visuals:
+   - Preserve the important written requirements.
+   - Also explain the engineering meaning of the important visual content.
+   - Avoid duplicating the same information in both forms.
+
+4. Be faithful to the page:
+   - Do not add information that is not visible or reasonably inferable from the page.
+   - Do not use outside engineering knowledge to fill missing information.
+   - If something cannot be read clearly, omit it rather than guessing.
+
+5. Keep the output efficient:
+   - Remove repeated headers, footers, page numbers, approval stamps, logos, and decorative text unless they contain useful document identification.
+   - Avoid repeated descriptions of identical symbols or devices.
+   - Prefer concise engineering descriptions over long visual transcriptions.
+   - Preserve all technically significant information.
+
+Return the result using the required structured output schema.
+
+For the page text field, produce one coherent RAG-ready representation of the page.
+'''
 # 2) Loading Ranking Model
 def load_ranker():
     reranker_model = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-base")
@@ -64,22 +106,8 @@ class ExtractedDocument(BaseModel):
     )
 
 ## b) Text Extraction Function to Interact with the Model
-def extract_text(pages, client):
-    content = [
-        {
-            "type": "text",
-            "text": """
-Extract all text from the following scanned document pages.
-
-Requirements:
-- Do not summarize.
-- Preserve headings, clause numbers, values, units, and tables.
-- Extract information from the main document body.
-- The document number is letters, numbers and scpecial char ':, -, _, \\...etc'
-- The document name is document subject. eg: 4 to 20 mA loop.
-- Each image is preceded by its actual PDF page number.
-- Use that exact page number in the output.
-"""}]
+def extract_text(pages, client, system_prompt):
+    content = []
     for page in pages:
         pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
         image_bytes = pix.tobytes("png")
@@ -96,6 +124,10 @@ Requirements:
     response = client.chat.completions.parse(
         model="gpt-4o",
         messages=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
             {
                 "role": "user",
                 "content": content
@@ -233,14 +265,14 @@ def answer_question (client, system_prompt, question, context):
     messages=[
         {
             "role": "system",
-            "content": {system_prompt}},
+            "content": system_prompt},
 
-            {
-                "role": "user",
-                "content": f'''
-                            Question: {question}
+        {
+            "role": "user",
+            "content": f'''
+                        Question: {question}
 
-                            context: {context}'''
-            }],
+                        context: {context}'''
+        }],
         response_format = StandardsAnswer)
     return response.choices[0].message.parsed
