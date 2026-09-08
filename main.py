@@ -101,9 +101,7 @@ class ExtractedDocument(BaseModel):
     document_name:str = Field(
         description = "The Document Name. Letters and numbers only"
     )
-    pages: List[ExtractedPage] = Field(
-        description="The pages extracted from the document"
-    )
+    text: str = Field(description="All text extracted from that page")
 
 ## b) Text Extraction Function to Interact with the Model
 def extract_text(pages, client, system_prompt):
@@ -139,24 +137,24 @@ def extract_text(pages, client, system_prompt):
     return response.choices[0].message.parsed
 
 ## c) Full Document Text Extraction 3 pages a time
-def extract_document_text(pdf, client):
+def extract_document_text(pdf, client, system_prompt):
   full_doc = {"document_id": None,
               "document_name": None,
               "pages": {}}
   for i in range(len(pdf)):
     pages = [pdf[i]]
     print(f"Extracting pages {i + 1}-{i + len(pages)}")
-    result = extract_text(pages, client)
+    result = extract_text(pages, client, system_prompt)
        
     if i == 0:
         full_doc["document_id"] = result.document_id
         full_doc["document_name"] = result.document_name
 
-    full_doc["pages"][i+1] = result.pages[0].text
+    full_doc["pages"][i+1] = result.text
   return full_doc
 
 ## d) Document Loader Function to Process Streamlit Uploaded Files and Return LangChain Documents
-def load_documents(uploaded_files, client):
+def load_documents(uploaded_files, client, system_prompt):
   documents = []
   for uploaded_file in uploaded_files:
       # Streamlit UploadedFile -> bytes
@@ -165,7 +163,7 @@ def load_documents(uploaded_files, client):
       pdf = pymupdf.open(
           stream=pdf_bytes,
           filetype="pdf")
-      full_doc = extract_document_text(pdf, client)
+      full_doc = extract_document_text(pdf, client, system_prompt)
       pdf.close()
       # Convert extracted pages into LangChain Documents
       for page_number, text in full_doc["pages"].items():
